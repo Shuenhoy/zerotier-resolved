@@ -1,14 +1,26 @@
 [Unit]
-Description=ZeroTier resolved service for interface %i
+Description=ZeroTier resolved daemon for interface %i
 BindsTo=sys-subsystem-net-devices-%i.device
 After=sys-subsystem-net-devices-%i.device
+# The daemon polls zerotier-one, so it should not start before it is up.
+Wants=zerotier-one.service
+After=zerotier-one.service
 
 [Service]
-Type=oneshot
-ExecStart=/usr/bin/python /usr/bin/zerotier-resolved.py -v -I %i
+Type=simple
+ExecStart=/usr/bin/python /usr/bin/zerotier-resolved.py -v -d -I %i
+# Belt and braces: the script reverts DNS settings itself on SIGTERM, but this
+# also cleans up if the daemon was killed or crashed.
+ExecStopPost=-/usr/bin/resolvectl revert %i
+Restart=on-failure
+RestartSec=5s
+# Only signal the main process on stop, so its cleanup (resolvectl revert)
+# is not interfered with. Anything left over is SIGKILLed after the timeout.
+KillMode=mixed
+TimeoutStopSec=15s
 
 ProtectSystem=strict
-PrivateDevices=true	
+PrivateDevices=true
 PrivateTmp=true
 ProtectKernelLogs=true
 ProtectProc=invisible

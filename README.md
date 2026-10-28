@@ -14,7 +14,9 @@ Note that `systemd-resolved` can work alongside [NetworkManager](https://wiki.ar
 and [`iwd`](https://wiki.archlinux.org/title/Iwd#Select_DNS_manager),
 making this solution viable for many desktop Linux distros.
 
-- A reasonably up-to-date version of Python 3. I believe 3.9 and higher should work, although this is only tested with 3.13 at the moment.
+- A reasonably up-to-date version of Python 3. Python 3.10 or higher is required
+  (the script uses `X | None` type annotations, which are evaluated at runtime
+  and only supported from 3.10 onwards).
 
   - No 3rd-party Python packages are required.
 
@@ -73,11 +75,44 @@ Current DNS Server: 192.168.0.1
 This does not survive a reboot or a restart of ZeroTier service,
 and it does not automatically update system if the DNS configuration on the ZeroTier network changed.
 
+## Daemon mode
+
+Add `--daemon` (or `-d`) to keep running:
+
+```shell
+sudo python zerotier-resolved.py -d -v
+```
+
+In daemon mode the script polls `zerotier-one` every `--interval` seconds
+(10 by default) and keeps systemd-resolved in sync with the controller:
+
+- new or changed DNS servers/domains are applied automatically;
+- interfaces of networks that were disconnected or lost their DNS configuration
+  get their per-link settings reverted;
+- if `zerotier-one` is temporarily unreachable, the current settings are kept
+  and the script retries on the next poll.
+
+When the daemon receives `SIGTERM`/`SIGINT` (for example on `systemctl stop`),
+it reverts all per-link DNS settings it applied before exiting,
+so no stale ZeroTier DNS servers are left behind in `systemd-resolved`.
+
+```shell
+sudo python zerotier-resolved.py -d -I ztxxxxxxxx
+```
+
+Both modes can still be restricted to specific interfaces with `-I`.
+
 ## `systemd` service bound to network interface
 
-The included `systemd` unit file invokes `zerotier-resolved.py` whenever the network interface associated with a ZeroTier network comes up,
-so DNS servers are properly configured even after a reboot.
-It still does not auto update if the network's DNS configuration is changed at the controller, though.
+The included `systemd` unit file is a `Type=simple` daemon running in daemon mode.
+It invokes `zerotier-resolved.py` whenever the network interface associated with a ZeroTier network comes up,
+and keeps watching the network's DNS configuration until the interface goes away or the unit is stopped.
+On stop the unit reverts the DNS settings for the interface
+(the script does this on `SIGTERM`, and an `ExecStopPost=` line does it as a fallback).
+
+It polls for changes, so settings pushed from the controller are picked up automatically too.
+The interval defaults to 10 seconds and can be changed by editing the `ExecStart` line
+(`--interval SECONDS`).
 
 ### Manual Install
 
@@ -114,7 +149,10 @@ Then, enable the systemd service as above.
 
 ... are left as an exercise for the reader.
 
-ZeroTier unfortunately does not have a "network changed" hook,
-so in order to automatically update system DNS whenever new settings are pushed from the controller,
-the best one can do is to poll for network information periodically.
-So, maybe a systemd timer bound to the zerotier service?
+Instead of the bundled unit, you can run the daemon directly:
+
+```shell
+sudo python zerotier-resolved.py -d -v
+```
+
+Since daemon mode syncs periodically, a `systemd` timer is no longer needed to pick up controller-side changes.

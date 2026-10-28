@@ -1,6 +1,6 @@
 ## Maintainer: twisteroid ambassador <twisteroidambassador@users.noreply.github.com>
 pkgname=zerotier-resolved
-pkgver=0.0.2
+pkgver=0.1.0
 pkgrel=1
 epoch=
 pkgdesc="Resolve hostnames for ZeroTier networks on Linux"
